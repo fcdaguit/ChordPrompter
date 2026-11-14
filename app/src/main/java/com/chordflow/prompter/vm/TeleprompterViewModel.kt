@@ -19,8 +19,10 @@ import kotlinx.coroutines.launch
 /**
  * Teleprompter state machine.
  *
- * The display list carries lyrics only. Chord triggers live alongside each line,
- * invisible, and move whenever the key changes — the lyric text never changes.
+ * Each line carries its lyric and its chord triggers. The triggers always drive the
+ * detector and move whenever the key changes. Whether they are also drawn on screen is
+ * decided by [UiState.showChords] / [UiState.chordsInline], which nothing in the audio
+ * or auto-scroll path ever reads.
  */
 class TeleprompterViewModel(app: Application) : AndroidViewModel(app) {
 
@@ -46,7 +48,11 @@ class TeleprompterViewModel(app: Application) : AndroidViewModel(app) {
         val debounceMs: Int = 450,
         val strictness: ChordMatcher.Strictness = ChordMatcher.Strictness.FAMILY,
         val lastMatchedChord: String = "",
-        val micError: String? = null
+        val micError: String? = null,
+        // Rendering only — never consulted by onDetection().
+        val showChords: Boolean = false,
+        val chordsInline: Boolean = false,
+        val chordFontScale: Float = 1.0f
     ) {
         val soundingKey: String get() = ChordTransposer.transposedKey(originalKey, transpose)
 
@@ -100,7 +106,10 @@ class TeleprompterViewModel(app: Application) : AndroidViewModel(app) {
                     fontScale = s.fontScale,
                     debounceMs = s.debounceMs,
                     autoScroll = s.autoScrollEnabled,
-                    strictness = parseStrictness(s.matchStrictness)
+                    strictness = parseStrictness(s.matchStrictness),
+                    showChords = s.teleprompterShowChords,
+                    chordsInline = s.chordStyle == SettingsStore.CHORD_STYLE_INLINE,
+                    chordFontScale = s.chordFontScale
                 )
             }
         }
@@ -124,7 +133,10 @@ class TeleprompterViewModel(app: Application) : AndroidViewModel(app) {
             fontScale = s?.fontScale ?: 1.0f,
             debounceMs = s?.debounceMs ?: 450,
             autoScroll = s?.autoScrollEnabled ?: true,
-            strictness = parseStrictness(s?.matchStrictness ?: "FAMILY")
+            strictness = parseStrictness(s?.matchStrictness ?: "FAMILY"),
+            showChords = s?.teleprompterShowChords ?: false,
+            chordsInline = s?.chordStyle == SettingsStore.CHORD_STYLE_INLINE,
+            chordFontScale = s?.chordFontScale ?: 1.0f
         )
     }
 
@@ -204,7 +216,7 @@ class TeleprompterViewModel(app: Application) : AndroidViewModel(app) {
 
     fun restart() = setActiveIndex(firstLyricIndex(_state.value.lines))
 
-    /** Live HUD key change — moves the hidden triggers, never the lyrics. */
+    /** Live HUD key change — moves the triggers (and any chords on screen), never the lyrics. */
     fun nudgeTranspose(delta: Int) {
         val st = _state.value
         val parsed = parsedSong ?: return
@@ -242,6 +254,34 @@ class TeleprompterViewModel(app: Application) : AndroidViewModel(app) {
     fun setFontScale(value: Float) {
         _state.value = _state.value.copy(fontScale = value)
         viewModelScope.launch { settings.setFontScale(value) }
+    }
+
+    // ---- display mode: state + DataStore only, the song is not reloaded ----
+
+    fun toggleShowChords() = setShowChords(!_state.value.showChords)
+
+    fun setShowChords(value: Boolean) {
+        _state.value = _state.value.copy(showChords = value)
+        viewModelScope.launch { settings.setTeleprompterShowChords(value) }
+    }
+
+    /** Mode A = lyrics only, Mode B = chords above, Mode C = inline. */
+    fun setLayout(showChords: Boolean, inline: Boolean) {
+        val st = _state.value
+        _state.value = st.copy(showChords = showChords, chordsInline = if (showChords) inline else st.chordsInline)
+        viewModelScope.launch {
+            settings.setTeleprompterShowChords(showChords)
+            if (showChords) {
+                settings.setChordStyle(
+                    if (inline) SettingsStore.CHORD_STYLE_INLINE else SettingsStore.CHORD_STYLE_ABOVE
+                )
+            }
+        }
+    }
+
+    fun setChordFontScale(value: Float) {
+        _state.value = _state.value.copy(chordFontScale = value)
+        viewModelScope.launch { settings.setChordFontScale(value) }
     }
 
     fun toggleAutoScroll() {

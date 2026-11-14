@@ -22,9 +22,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.pointerInput
@@ -42,7 +40,7 @@ fun SongEditorScreen(
 ) {
     LaunchedEffect(songId) { vm.load(songId) }
     val state by vm.state.collectAsState()
-    var previewMode by remember { mutableStateOf(PreviewMode.CHORDS) }
+    val display by vm.display.collectAsState()
 
     Column(
         modifier = Modifier
@@ -116,48 +114,106 @@ fun SongEditorScreen(
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text("PREVIEW", style = MaterialTheme.typography.labelSmall, color = Phosphor.GreenDim)
+                Text("DISPLAY", style = MaterialTheme.typography.labelSmall, color = Phosphor.GreenDim)
                 Spacer(Modifier.weight(1f))
-                PreviewMode.entries.forEach { mode ->
-                    val selected = mode == previewMode
-                    Box(
-                        modifier = Modifier
-                            .border(
-                                1.dp,
-                                if (selected) Phosphor.GreenBright else Phosphor.GreenFaint,
-                                RoundedCornerShape(3.dp)
-                            )
-                            .background(if (selected) Phosphor.GreenGhost else Phosphor.Black)
-                            .pointerInput(mode) { detectTapGesturesCompat { previewMode = mode } }
-                            .padding(horizontal = 8.dp, vertical = 4.dp)
-                    ) {
-                        Text(
-                            text = mode.label,
-                            style = MaterialTheme.typography.labelSmall,
-                            color = if (selected) Phosphor.GreenBright else Phosphor.GreenDim
-                        )
-                    }
+                GreenChip(
+                    label = "LYRICS ONLY",
+                    selected = !display.showChords,
+                    onClick = { vm.setShowChords(false) }
+                )
+                GreenChip(
+                    label = "LYRICS + CHORDS",
+                    selected = display.showChords,
+                    onClick = { vm.setShowChords(true) }
+                )
+            }
+            if (display.showChords) {
+                Spacer(Modifier.height(6.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("CHORD STYLE", style = MaterialTheme.typography.labelSmall, color = Phosphor.GreenDim)
+                    Spacer(Modifier.weight(1f))
+                    GreenChip(
+                        label = "ABOVE",
+                        selected = !display.chordsInline,
+                        onClick = { vm.setChordsInline(false) }
+                    )
+                    GreenChip(
+                        label = "[G]INLINE",
+                        selected = display.chordsInline,
+                        onClick = { vm.setChordsInline(true) }
+                    )
                 }
             }
 
             Spacer(Modifier.height(6.dp))
-            Box(
+            SliderRow(
+                label = "LYRIC SIZE",
+                value = FontRange.lyricToSlider(display.lyricScale),
+                onChange = { vm.setLyricScale(FontRange.sliderToLyric(it)) },
+                hint = "Scale ${"%.2f".format(display.lyricScale)}x - also used on stage"
+            )
+            SliderRow(
+                label = "CHORD SIZE",
+                value = FontRange.chordToSlider(display.chordScale),
+                onChange = { vm.setChordScale(FontRange.sliderToChord(it)) },
+                hint = "Scale ${"%.2f".format(display.chordScale)}x - also used on stage"
+            )
+
+            Spacer(Modifier.height(6.dp))
+            Text(
+                text = "PREVIEW - KEY ${state.soundingKey}",
+                style = MaterialTheme.typography.labelSmall,
+                color = Phosphor.GreenDim
+            )
+            Spacer(Modifier.height(4.dp))
+            Column(
                 modifier = Modifier
                     .fillMaxWidth()
                     .border(1.dp, Phosphor.GreenFaint, RoundedCornerShape(4.dp))
                     .padding(10.dp)
             ) {
-                val previewText = remember(state.content, state.transpose, previewMode, state.originalKey) {
-                    when (previewMode) {
-                        PreviewMode.CHORDS -> vm.previewWithChords()
-                        PreviewMode.STAGE -> vm.previewLyricsOnly().joinToString("\n")
+                // Re-parsed only when the chart or the key changes; switching display mode
+                // or dragging a size slider just redraws the same lines.
+                val previewLines = remember(state.content, state.transpose, state.originalKey) {
+                    vm.previewLines()
+                }
+                if (previewLines.isEmpty()) {
+                    StatusLine("(nothing to preview)")
+                }
+                // Half the stage size, same proportions.
+                val lyricSp = 15 * display.lyricScale
+                val chordSp = 11 * display.chordScale
+                previewLines.forEach { line ->
+                    val chordRun = display.showChords && line.chords.isNotEmpty()
+                    when {
+                        line.isBlank && line.lyric.isBlank() && !chordRun ->
+                            Spacer(Modifier.height((lyricSp * 0.6f).dp))
+                        line.isSection ->
+                            Text(
+                                text = line.lyric.uppercase(),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = Phosphor.GreenDim,
+                                modifier = Modifier.padding(top = 8.dp, bottom = 2.dp)
+                            )
+                        else ->
+                            SongLineText(
+                                line = line,
+                                showChords = display.showChords,
+                                inline = display.chordsInline,
+                                lyricSp = lyricSp,
+                                chordSp = chordSp,
+                                lyricColor = Phosphor.Green,
+                                chordColor = Phosphor.GreenBright,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 2.dp)
+                            )
                     }
                 }
-                Text(
-                    text = previewText.ifBlank { "(nothing to preview)" },
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = if (previewMode == PreviewMode.STAGE) Phosphor.GreenBright else Phosphor.Green
-                )
             }
             Spacer(Modifier.height(16.dp))
         }
@@ -182,11 +238,6 @@ fun SongEditorScreen(
             )
         }
     }
-}
-
-private enum class PreviewMode(val label: String) {
-    CHORDS("WITH CHORDS"),
-    STAGE("STAGE VIEW")
 }
 
 @Composable

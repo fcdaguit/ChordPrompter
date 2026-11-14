@@ -8,8 +8,11 @@ package com.chordflow.prompter.core
  *  3. Chord-over-lyric text    G        D        Em       C
  *                              Amazing grace, how sweet the sound
  *
- * The teleprompter shows [SongLine.lyric] only — chords never reach the screen.
- * [SongLine.chords] carries the hidden triggers the audio engine matches against.
+ * [SongLine.chords] carries the triggers the audio engine matches against. That list is
+ * the single source of truth for detection and auto-scroll and is identical in every
+ * display mode. [SongLine.positions] only says where each chord sits over the lyric, so
+ * the screen can draw chords when the user turns them on. Rendering never feeds back
+ * into matching.
  */
 object ChordParser {
 
@@ -17,8 +20,13 @@ object ChordParser {
         val lyric: String,
         val chords: List<String>,
         val isSection: Boolean = false,
-        val isBlank: Boolean = false
+        val isBlank: Boolean = false,
+        /** Character offset into [lyric] for each entry of [chords]. Display only. */
+        val positions: List<Int> = emptyList()
     )
+
+    /** A run of lyric text with the chord that lands on its first character ("" = none). */
+    data class Segment(val chord: String, val text: String)
 
     data class ParsedSong(
         val title: String,
@@ -40,6 +48,7 @@ object ChordParser {
 
     private val DIRECTIVE = Regex("^\\s*\\{\\s*([a-zA-Z_]+)\\s*:?\\s*(.*?)\\s*}\\s*$")
     private val INLINE_CHORD = Regex("\\[([^\\]]{1,12})]")
+    private val TOKEN = Regex("\\S+")
     private val SECTION_HINT = Regex(
         "^\\s*\\(?\\s*(verse|chorus|bridge|intro|outro|tag|pre-?chorus|refrain|interlude|instrumental|ending|coda|vamp|turnaround)\\b.*",
         RegexOption.IGNORE_CASE
@@ -90,16 +99,31 @@ object ChordParser {
 
             // --- 3. Inline bracketed chords ----------------------------------
             if (INLINE_CHORD.containsMatchIn(line)) {
-                val chords = INLINE_CHORD.findAll(line)
-                    .map { it.groupValues[1].trim() }
-                    .filter { ChordTransposer.isChordToken(it) }
-                    .toList()
-                val lyric = INLINE_CHORD.replace(line, "").trim()
+                val chords = mutableListOf<String>()
+                val rawPositions = mutableListOf<Int>()
+                val stripped = StringBuilder()
+                var last = 0
+                for (m in INLINE_CHORD.findAll(line)) {
+                    stripped.append(line.substring(last, m.range.first))
+                    val token = m.groupValues[1].trim()
+                    if (ChordTransposer.isChordToken(token)) {
+                        chords.add(token)
+                        rawPositions.add(stripped.length)
+                    }
+                    last = m.range.last + 1
+                }
+                stripped.append(line.substring(last))
+                val rawLyric = stripped.toString()
+                val lead = rawLyric.length - rawLyric.trimStart().length
+                val lyric = rawLyric.trim()
                 if (lyric.isEmpty() && chords.isNotEmpty()) {
                     // A pure chord line written in ChordPro brackets — e.g. "[G] [D] [Em] [C]"
                     staged.add(SongLine("", chords, isBlank = true))
                 } else {
-                    staged.add(SongLine(lyric, chords, isSection = isSectionLabel(lyric)))
+                    val positions = rawPositions.map { (it - lead).coerceIn(0, lyric.length) }
+                    staged.add(
+                        SongLine(lyric, chords, isSection = isSectionLabel(lyric), positions = positions)
+                    )
                 }
                 i++
                 continue
@@ -107,16 +131,24 @@ object ChordParser {
 
             // --- 4. Chord-over-lyric -----------------------------------------
             if (isChordLine(line)) {
-                val chords = line.trim().split(Regex("\\s+"))
-                    .filter { ChordTransposer.isChordToken(it) }
+                val chordTokens = TOKEN.findAll(line)
+                    .filter { ChordTransposer.isChordToken(it.value) }
+                    .toList()
+                val chords = chordTokens.map { it.value }
                 // Attach the chords to the next non-blank, non-chord line.
                 var j = i + 1
                 while (j < sourceLines.size && sourceLines[j].isBlank()) j++
                 if (j < sourceLines.size && !isChordLine(sourceLines[j]) &&
                     !DIRECTIVE.matches(sourceLines[j])
                 ) {
-                    val lyric = sourceLines[j].trim()
-                    staged.add(SongLine(lyric, chords, isSection = isSectionLabel(lyric)))
+                    val lyricSource = sourceLines[j]
+                    val lead = lyricSource.length - lyricSource.trimStart().length
+                    val lyric = lyricSource.trim()
+                    // The chord's column in the chord line is its place over the lyric.
+                    val positions = chordTokens.map { (it.range.first - lead).coerceIn(0, lyric.length) }
+                    staged.add(
+                        SongLine(lyric, chords, isSection = isSectionLabel(lyric), positions = positions)
+                    )
                     i = j + 1
                 } else {
                     // Instrumental run with no lyric underneath.
@@ -182,7 +214,8 @@ object ChordParser {
 
     /**
      * Returns the song's lines with every chord transposed by [semitones].
-     * The lyric text is untouched — only the hidden triggers move.
+     * The lyric text and chord positions are untouched — only the chord names move, so
+     * the same list drives both the detector and whatever chords are on screen.
      */
     fun transposed(song: ParsedSong, semitones: Int): ParsedSong {
         if (semitones == 0) return song
@@ -194,8 +227,67 @@ object ChordParser {
     }
 
     /**
+     * Splits a line into lyric runs, each starting at a chord. Display only.
+     * "[G]Amazing [D]grace" -> (G,"Amazing "), (D,"grace").
+     */
+    fun segments(line: SongLine): List<Segment> {
+        if (line.chords.isEmpty()) return listOf(Segment("", line.lyric))
+        if (line.positions.size != line.chords.size) {
+            // No placement information: stack the chords at the start of the line.
+            val out = line.chords.dropLast(1).map { Segment(it, "") }.toMutableList()
+            out.add(Segment(line.chords.last(), line.lyric))
+            return out
+        }
+        val placed = line.chords.zip(line.positions.map { it.coerceIn(0, line.lyric.length) })
+            .sortedBy { it.second }
+        val out = mutableListOf<Segment>()
+        if (placed.first().second > 0) {
+            out.add(Segment("", line.lyric.substring(0, placed.first().second)))
+        }
+        for (k in placed.indices) {
+            val start = placed[k].second
+            val end = if (k + 1 < placed.size) placed[k + 1].second else line.lyric.length
+            out.add(Segment(placed[k].first, line.lyric.substring(start, end)))
+        }
+        return out
+    }
+
+    /**
+     * [segments] regrouped into words, so the chords-above layout can wrap between
+     * words without ever splitting one. Each inner list is one unbreakable word.
+     */
+    fun words(line: SongLine): List<List<Segment>> {
+        val out = mutableListOf<List<Segment>>()
+        var current = mutableListOf<Segment>()
+        for (seg in segments(line)) {
+            var chord = seg.chord
+            val buf = StringBuilder()
+            for (ch in seg.text) {
+                if (ch.isWhitespace()) {
+                    if (buf.isNotEmpty() || chord.isNotEmpty()) {
+                        current.add(Segment(chord, buf.toString()))
+                        chord = ""
+                        buf.setLength(0)
+                    }
+                    if (current.isNotEmpty()) {
+                        out.add(current)
+                        current = mutableListOf()
+                    }
+                } else {
+                    buf.append(ch)
+                }
+            }
+            if (buf.isNotEmpty() || chord.isNotEmpty()) {
+                current.add(Segment(chord, buf.toString()))
+            }
+        }
+        if (current.isNotEmpty()) out.add(current)
+        return out
+    }
+
+    /**
      * Re-render the chart as readable ChordPro-style text with the chords transposed.
-     * Used by the Song Editor preview, never by the teleprompter.
+     * Plain-text export of the chart; the screens draw from [segments] instead.
      */
     fun renderWithChords(song: ParsedSong, semitones: Int): String {
         val moved = transposed(song, semitones)

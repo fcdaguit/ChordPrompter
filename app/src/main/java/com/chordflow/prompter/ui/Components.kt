@@ -17,10 +17,13 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
@@ -191,6 +194,70 @@ fun GreenTextField(
             unfocusedContainerColor = Phosphor.Black
         )
     )
+}
+
+/** One option of a segmented choice, e.g. LYRICS ONLY | LYRICS + CHORDS. */
+@Composable
+fun GreenChip(
+    label: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Box(
+        modifier = modifier
+            .border(
+                1.dp,
+                if (selected) Phosphor.GreenBright else Phosphor.GreenFaint,
+                RoundedCornerShape(3.dp)
+            )
+            .background(if (selected) Phosphor.GreenGhost else Phosphor.Black)
+            .pointerInput(label) { detectTapGesturesCompat { onClick() } }
+            .padding(horizontal = 8.dp, vertical = 5.dp)
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelSmall,
+            color = if (selected) Phosphor.GreenBright else Phosphor.GreenDim,
+            maxLines = 1
+        )
+    }
+}
+
+/** Labelled 0..1 slider with a one-line hint underneath. */
+@Composable
+fun SliderRow(
+    label: String,
+    value: Float,
+    onChange: (Float) -> Unit,
+    hint: String
+) {
+    Column(modifier = Modifier.padding(vertical = 2.dp)) {
+        Text(label, style = MaterialTheme.typography.labelSmall, color = Phosphor.GreenDim)
+        Slider(
+            value = value.coerceIn(0f, 1f),
+            onValueChange = onChange,
+            colors = SliderDefaults.colors(
+                thumbColor = Phosphor.GreenBright,
+                activeTrackColor = Phosphor.Green,
+                inactiveTrackColor = Phosphor.GreenFaint
+            )
+        )
+        Text(hint, style = MaterialTheme.typography.labelSmall, color = Phosphor.GreenFaint)
+    }
+}
+
+/** Font-size ranges shared by the teleprompter and the editor preview. */
+object FontRange {
+    const val LYRIC_MIN = 0.6f
+    const val LYRIC_MAX = 3.0f
+    const val CHORD_MIN = 0.5f
+    const val CHORD_MAX = 3.0f
+
+    fun lyricToSlider(scale: Float) = (scale - LYRIC_MIN) / (LYRIC_MAX - LYRIC_MIN)
+    fun sliderToLyric(v: Float) = LYRIC_MIN + v * (LYRIC_MAX - LYRIC_MIN)
+    fun chordToSlider(scale: Float) = (scale - CHORD_MIN) / (CHORD_MAX - CHORD_MIN)
+    fun sliderToChord(v: Float) = CHORD_MIN + v * (CHORD_MAX - CHORD_MIN)
 }
 
 /** Small bracketed key badge, e.g. [ KEY: G ] */
