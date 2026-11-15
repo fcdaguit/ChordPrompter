@@ -4,8 +4,9 @@ An offline-first Android lyric teleprompter for church worship teams. It listens
 acoustic guitar or piano through the phone's microphone, recognises the chords being
 played, and scrolls the lyrics when the band reaches the next chord in the chart.
 
-The stage display shows **lyrics only** — every chord and ChordPro directive is stripped
-by the parser and kept in memory as an invisible trigger.
+The stage display defaults to **lyrics only** — ChordPro directives are stripped and the
+chords are kept in memory as triggers. Chords can be shown at any time (above the lyrics
+or inline) without affecting detection or auto-scroll.
 
 ---
 
@@ -17,6 +18,7 @@ by the parser and kept in memory as an invisible trigger.
 | **Optional online prep** | A single "Download Free Songs" screen fetches open ChordPro/OnSong charts from public GitHub repositories, or from any raw URL you paste. |
 | **Local import** | Pulls `.cho`, `.chopro`, `.onsong`, `.pro`, `.crd` and `.txt` chord sheets from Downloads, Drive or anywhere the system file picker reaches. |
 | **Display** | Pure black `#000000` with phosphor green `#00FF41` / `#39FF14`, monospace, screen kept awake in teleprompter mode. |
+| **Chord display modes** | Lyrics Only (default on stage), Chords Above Lyrics, or `[G]Inline`. **SHOW / HIDE CHORDS** in the stage HUD and **LYRICS ONLY / LYRICS + CHORDS** in the Song Editor switch instantly. Shown chords always follow the transposed key. Lyric and chord sizes are set separately. All of it is saved in DataStore. |
 | **Key changing** | Per-song saved transpose (-11..+11), a target-key picker, and `-1 / +1` buttons in the live stage HUD. Slash chords and extensions transpose with correct sharp/flat spelling. |
 | **Setlists** | Multiple named setlists, long-press drag-and-drop reordering, per-song key badges. |
 | **Seeded content** | Two public-domain hymns are written to the database on first launch, so the app works the moment it installs. |
@@ -181,7 +183,10 @@ layer rather than anything structural.
 5. **AUTO / MANUAL** toggles auto-scroll. **PREV / NEXT** always work as a fallback, and
    tapping any line jumps straight to it.
 6. **`-1` / `+1`** beside the key change the key live. The lyrics never move — only the
-   hidden chord triggers do.
+   chord triggers do, along with the chords on screen if they are showing.
+7. **SHOW CHORDS / HIDE CHORDS** flips between lyrics only and lyrics with chords. In
+   **⚙** pick the layout (Lyrics Only, Chords Above, Inline) and set **Lyric size** and
+   **Chord size** separately. None of this changes what the microphone listens for.
 
 ### Tuning tips for a loud room
 

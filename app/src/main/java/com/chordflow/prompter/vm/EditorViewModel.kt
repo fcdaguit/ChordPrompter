@@ -5,6 +5,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.chordflow.prompter.core.ChordParser
 import com.chordflow.prompter.core.ChordTransposer
+import com.chordflow.prompter.data.SettingsStore
 import com.chordflow.prompter.data.Song
 import com.chordflow.prompter.data.SongRepository
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -16,6 +17,55 @@ import kotlinx.coroutines.launch
 class EditorViewModel(app: Application) : AndroidViewModel(app) {
 
     private val repo = SongRepository(app)
+    private val settings = SettingsStore(app)
+
+    /** Editor display preferences, persisted in DataStore. */
+    data class DisplayState(
+        val showChords: Boolean = true,
+        val chordsInline: Boolean = false,
+        val lyricScale: Float = 1.0f,
+        val chordScale: Float = 1.0f
+    )
+
+    private val _display = MutableStateFlow(DisplayState())
+    val display: StateFlow<DisplayState> = _display.asStateFlow()
+
+    init {
+        viewModelScope.launch {
+            settings.settings.collect { s ->
+                _display.value = DisplayState(
+                    showChords = s.editorShowChords,
+                    chordsInline = s.chordStyle == SettingsStore.CHORD_STYLE_INLINE,
+                    lyricScale = s.fontScale,
+                    chordScale = s.chordFontScale
+                )
+            }
+        }
+    }
+
+    fun setShowChords(value: Boolean) {
+        _display.value = _display.value.copy(showChords = value)
+        viewModelScope.launch { settings.setEditorShowChords(value) }
+    }
+
+    fun setChordsInline(inline: Boolean) {
+        _display.value = _display.value.copy(chordsInline = inline)
+        viewModelScope.launch {
+            settings.setChordStyle(
+                if (inline) SettingsStore.CHORD_STYLE_INLINE else SettingsStore.CHORD_STYLE_ABOVE
+            )
+        }
+    }
+
+    fun setLyricScale(value: Float) {
+        _display.value = _display.value.copy(lyricScale = value)
+        viewModelScope.launch { settings.setFontScale(value) }
+    }
+
+    fun setChordScale(value: Float) {
+        _display.value = _display.value.copy(chordScale = value)
+        viewModelScope.launch { settings.setChordFontScale(value) }
+    }
 
     data class UiState(
         val loaded: Boolean = false,
@@ -79,7 +129,16 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
 
     fun resetTranspose() = patch { it.copy(transpose = 0, saved = false) }
 
-    /** The chart as it will sound, chords included — editor preview only. */
+    /**
+     * The parsed chart in the sounding key. The preview draws it with or without
+     * chords; the chords shown are always the transposed ones.
+     */
+    fun previewLines(): List<ChordParser.SongLine> {
+        val parsed = ChordParser.parse(_state.value.content)
+        return ChordParser.transposed(parsed, _state.value.transpose).lines
+    }
+
+    /** The chart as it will sound, chords included, as plain text. */
     fun previewWithChords(): String {
         val parsed = ChordParser.parse(_state.value.content)
         return ChordParser.renderWithChords(parsed, _state.value.transpose)

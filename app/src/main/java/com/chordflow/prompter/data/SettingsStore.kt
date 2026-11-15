@@ -24,8 +24,21 @@ class SettingsStore(private val context: Context) {
         val debounceMs: Int = 450,
         val matchStrictness: String = "FAMILY",
         val lastSetlist: String = Song.DEFAULT_SETLIST,
-        val customCatalogUrl: String = ""
+        val customCatalogUrl: String = "",
+        /** Teleprompter default: false = Lyrics Only (stage), true = chords visible. */
+        val teleprompterShowChords: Boolean = false,
+        /** Song Editor default: true = Lyrics + Chords. */
+        val editorShowChords: Boolean = true,
+        /** How chords are drawn when visible: "ABOVE" or "INLINE". */
+        val chordStyle: String = SettingsStore.CHORD_STYLE_ABOVE,
+        /** Chord size multiplier, independent of [fontScale] (lyrics). */
+        val chordFontScale: Float = 1.0f
     )
+
+    companion object {
+        const val CHORD_STYLE_ABOVE = "ABOVE"
+        const val CHORD_STYLE_INLINE = "INLINE"
+    }
 
     private object Keys {
         val SENSITIVITY = floatPreferencesKey("sensitivity")
@@ -36,6 +49,10 @@ class SettingsStore(private val context: Context) {
         val STRICTNESS = stringPreferencesKey("strictness")
         val LAST_SETLIST = stringPreferencesKey("last_setlist")
         val CATALOG_URL = stringPreferencesKey("catalog_url")
+        val PROMPTER_SHOW_CHORDS = booleanPreferencesKey("prompter_show_chords")
+        val EDITOR_SHOW_CHORDS = booleanPreferencesKey("editor_show_chords")
+        val CHORD_STYLE = stringPreferencesKey("chord_style")
+        val CHORD_FONT_SCALE = floatPreferencesKey("chord_font_scale")
     }
 
     val settings: Flow<Settings> = context.dataStore.data.map { p -> p.toSettings() }
@@ -48,7 +65,11 @@ class SettingsStore(private val context: Context) {
         debounceMs = this[Keys.DEBOUNCE] ?: 450,
         matchStrictness = this[Keys.STRICTNESS] ?: "FAMILY",
         lastSetlist = this[Keys.LAST_SETLIST] ?: Song.DEFAULT_SETLIST,
-        customCatalogUrl = this[Keys.CATALOG_URL] ?: ""
+        customCatalogUrl = this[Keys.CATALOG_URL] ?: "",
+        teleprompterShowChords = this[Keys.PROMPTER_SHOW_CHORDS] ?: false,
+        editorShowChords = this[Keys.EDITOR_SHOW_CHORDS] ?: true,
+        chordStyle = this[Keys.CHORD_STYLE] ?: CHORD_STYLE_ABOVE,
+        chordFontScale = this[Keys.CHORD_FONT_SCALE] ?: 1.0f
     )
 
     suspend fun setSensitivity(value: Float) = edit { it[Keys.SENSITIVITY] = value }
@@ -59,6 +80,10 @@ class SettingsStore(private val context: Context) {
     suspend fun setStrictness(value: String) = edit { it[Keys.STRICTNESS] = value }
     suspend fun setLastSetlist(value: String) = edit { it[Keys.LAST_SETLIST] = value }
     suspend fun setCatalogUrl(value: String) = edit { it[Keys.CATALOG_URL] = value }
+    suspend fun setTeleprompterShowChords(value: Boolean) = edit { it[Keys.PROMPTER_SHOW_CHORDS] = value }
+    suspend fun setEditorShowChords(value: Boolean) = edit { it[Keys.EDITOR_SHOW_CHORDS] = value }
+    suspend fun setChordStyle(value: String) = edit { it[Keys.CHORD_STYLE] = value }
+    suspend fun setChordFontScale(value: Float) = edit { it[Keys.CHORD_FONT_SCALE] = value }
 
     private suspend fun edit(block: (androidx.datastore.preferences.core.MutablePreferences) -> Unit) {
         context.dataStore.edit { block(it) }
